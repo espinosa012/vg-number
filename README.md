@@ -100,8 +100,10 @@ A flexible implementation of the A* (A-Star) algorithm. It works with arbitrary 
 #### Features:
 - Generic A* for any graph-like structure (`astar`).
 - Optimized `astar_grid_2d` for quick setup on 2D maps.
-- Pluggable heuristics (Manhattan included out of the box).
-- Configurable options: Diagonal movement, dynamic costs, iteration limits, and debugging callbacks.
+- Pluggable heuristics (Manhattan and Zero included out of the box).
+- Extensible `Heuristic` base class for custom estimators.
+- Configurable options: diagonal movement, dynamic costs, iteration limits, and debugging callbacks.
+- Weighted A* support for faster, sub-optimal searches.
 
 #### Basic Usage:
 
@@ -111,7 +113,7 @@ from vg_number.pathfinding import astar_grid_2d, Manhattan
 # Define a walkability function
 def is_walkable(pos):
     x, y = pos
-    # Example: Restrict movement to a 10x10 grid and place an obstacle at (5, 5)
+    # Example: restrict movement to a 10x10 grid and place an obstacle at (5, 5)
     if pos == (5, 5):
         return False
     return 0 <= x < 10 and 0 <= y < 10
@@ -133,6 +135,105 @@ if result.found:
 else:
     print("No path could be found.")
 ```
+
+#### Generic Graph A*
+
+For graphs that are not regular grids, use the low-level `astar` function with custom neighbor and cost functions:
+
+```python
+from vg_number.pathfinding import astar, Manhattan
+
+result = astar(
+    start=start_node,
+    goal=goal_node,
+    neighbors_fn=get_neighbors,
+    cost_fn=get_cost,
+    heuristic=Manhattan()
+)
+```
+
+#### Available Heuristics
+
+| Heuristic | Status | Best for |
+|-----------|--------|----------|
+| `Manhattan` | Implemented | 4-directional grid movement (L1 norm) |
+| `Zero` | Implemented | Dijkstra-like search (always returns 0) |
+| `Euclidean` | Placeholder | Free movement in any direction (L2 norm) |
+| `Chebyshev` | Placeholder | 8-directional movement with equal diagonal cost |
+| `Octile` | Placeholder | 8-directional movement with costly diagonals |
+
+All heuristic classes accept a `weight` parameter. Weights greater than 1.0 turn A* into weighted A*, trading optimality for speed.
+
+#### Advanced Examples
+
+**Obstacles**
+
+```python
+obstacles = {(1, 1), (1, 2), (1, 3), (2, 2)}
+
+def is_walkable(pos):
+    x, y = pos
+    return 0 <= x < 10 and 0 <= y < 10 and pos not in obstacles
+
+result = astar_grid_2d((0, 0), (4, 4), is_walkable, Manhattan())
+```
+
+**Iteration Limit**
+
+```python
+result = astar_grid_2d(
+    start=(0, 0),
+    goal=(100, 100),
+    is_walkable_fn=is_walkable,
+    heuristic=Manhattan(),
+    max_iterations=1000
+)
+```
+
+**Search Callbacks**
+
+```python
+from vg_number.pathfinding import astar_with_callbacks, Manhattan
+
+result = astar_with_callbacks(
+    start=(0, 0),
+    goal=(5, 5),
+    neighbors_fn=get_neighbors,
+    cost_fn=get_cost,
+    heuristic=Manhattan(),
+    on_node_explored=on_explored,
+    on_node_added=on_added
+)
+```
+
+**Weighted A***
+
+```python
+weighted = Manhattan(weight=2.0)
+result = astar_grid_2d((0, 0), (50, 50), is_walkable, weighted)
+```
+
+#### PathResult
+
+Every search returns a `PathResult` object with the following attributes:
+
+- `path`: List of nodes from start to goal, or `None` if no path was found.
+- `cost`: Total cost of the path, or `None` if no path was found.
+- `path_length`: Number of nodes in the path (`0` if not found).
+- `nodes_explored`: Number of nodes expanded during the search.
+- `found`: `True` if a path was found.
+
+`PathResult` also implements `__bool__`, so it can be used directly in conditions:
+
+```python
+if result:
+    print(result.path)
+```
+
+#### Complexity
+
+- **Time:** O(b^d), where `b` is the branching factor and `d` is the search depth.
+- **Space:** O(b^d) for the open and closed sets.
 
 ---
 
