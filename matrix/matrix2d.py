@@ -1,0 +1,1447 @@
+"""
+VGMatrix2D - Efficient 2D matrix data structure for numerical operations.
+
+This module provides a high-performance 2D matrix class optimized for
+numerical operations like addition, subtraction, multiplication, and
+convolution filtering.
+"""
+
+from typing import Optional, Tuple, Union
+import numpy as np
+from numpy.typing import NDArray
+
+
+class Matrix2D:
+    """
+    Efficient 2D matrix data structure with support for unassigned values.
+
+    Uses NumPy arrays internally for high-performance operations.
+    Unassigned values are tracked using a boolean mask (more efficient
+    than storing None values directly).
+
+    Attributes:
+        _data: Internal NumPy array storing the matrix values.
+        _mask: Boolean mask where True indicates an assigned value.
+        _shape: Tuple (rows, columns) representing matrix dimensions.
+
+    Example:
+        >>> matrix = Matrix2D((512, 512), 0.55)
+        >>> matrix.get_value_at(0, 0)
+        0.55
+        >>> matrix.set_value_at(0, 0, None)
+        >>> matrix.get_value_at(0, 0)
+        None
+    """
+
+    def __init__(
+        self,
+        shape: Tuple[int, int],
+        default_value: Optional[float] = 0.0
+    ) -> None:
+        """
+        Initialize a 2D matrix with given shape and default value.
+
+        Args:
+            shape: Tuple (rows, columns) specifying matrix dimensions.
+            default_value: Initial value for all cells. Use None for unassigned.
+
+        Raises:
+            ValueError: If shape dimensions are not positive integers.
+        """
+        if len(shape) != 2 or shape[0] <= 0 or shape[1] <= 0:
+            raise ValueError(f"Shape must be a tuple of two positive integers, got {shape}")
+
+        self._shape = shape
+
+        if default_value is None:
+            # All values unassigned
+            self._data = np.zeros(shape, dtype=np.float64)
+            self._mask = np.zeros(shape, dtype=np.bool_)
+        else:
+            # All values assigned with default
+            self._data = np.full(shape, default_value, dtype=np.float64)
+            self._mask = np.ones(shape, dtype=np.bool_)
+
+    @property
+    def shape(self) -> Tuple[int, int]:
+        """Get the matrix shape (rows, columns)."""
+        return self._shape
+
+    @property
+    def rows(self) -> int:
+        """Get the number of rows."""
+        return self._shape[0]
+
+    @property
+    def cols(self) -> int:
+        """Get the number of columns."""
+        return self._shape[1]
+
+    @property
+    def size(self) -> int:
+        """Get the total number of elements."""
+        return self._shape[0] * self._shape[1]
+
+    @property
+    def data(self) -> NDArray[np.float64]:
+        """Get the internal data array (read-only view)."""
+        return self._data.view()
+
+    @property
+    def mask(self) -> NDArray[np.bool_]:
+        """Get the assignment mask (True = assigned)."""
+        return self._mask.view()
+
+    def _check_bounds(self, row: int, col: int) -> None:
+        """Check if indices are within bounds."""
+        if not (0 <= row < self._shape[0] and 0 <= col < self._shape[1]):
+            raise IndexError(
+                f"Index ({row}, {col}) out of bounds for matrix of shape {self._shape}"
+            )
+
+    def get_value_at(self, row: int, col: int) -> Optional[float]:
+        """
+        Get the value at the specified position.
+
+        Args:
+            row: Row index (0-based).
+            col: Column index (0-based).
+
+        Returns:
+            The value at (row, col), or None if unassigned.
+
+        Raises:
+            IndexError: If indices are out of bounds.
+        """
+        self._check_bounds(row, col)
+
+        if self._mask[row, col]:
+            return float(self._data[row, col])
+        return None
+
+    def set_value_at(self, row: int, col: int, value: Optional[float]) -> None:
+        """
+        Set the value at the specified position.
+
+        Args:
+            row: Row index (0-based).
+            col: Column index (0-based).
+            value: The value to set, or None to mark as unassigned.
+
+        Raises:
+            IndexError: If indices are out of bounds.
+        """
+        self._check_bounds(row, col)
+
+        if value is None:
+            self._mask[row, col] = False
+        else:
+            self._data[row, col] = value
+            self._mask[row, col] = True
+
+    def is_assigned(self, row: int, col: int) -> bool:
+        """Check if a position has an assigned value."""
+        self._check_bounds(row, col)
+        return bool(self._mask[row, col])
+
+    def count_assigned(self) -> int:
+        """Count the number of assigned values."""
+        return int(np.sum(self._mask))
+
+    def count_unassigned(self) -> int:
+        """Count the number of unassigned values."""
+        return self.size - self.count_assigned()
+
+    def fill(self, value: Optional[float]) -> None:
+        """Fill the entire matrix with a value."""
+        if value is None:
+            self._mask.fill(False)
+        else:
+            self._data.fill(value)
+            self._mask.fill(True)
+
+    def resize(self, new_shape: Tuple[int, int], default_value: Optional[float] = None) -> None:
+        """
+        Resize the matrix, preserving existing values where possible.
+
+        Args:
+            new_shape: New shape (rows, columns).
+            default_value: Value for new cells (None for unassigned).
+        """
+        if len(new_shape) != 2 or new_shape[0] <= 0 or new_shape[1] <= 0:
+            raise ValueError(f"Shape must be a tuple of two positive integers, got {new_shape}")
+
+        old_shape = self._shape
+
+        # Create new arrays
+        if default_value is None:
+            new_data = np.zeros(new_shape, dtype=np.float64)
+            new_mask = np.zeros(new_shape, dtype=np.bool_)
+        else:
+            new_data = np.full(new_shape, default_value, dtype=np.float64)
+            new_mask = np.ones(new_shape, dtype=np.bool_)
+
+        # Copy existing data
+        min_rows = min(old_shape[0], new_shape[0])
+        min_cols = min(old_shape[1], new_shape[1])
+
+        new_data[:min_rows, :min_cols] = self._data[:min_rows, :min_cols]
+        new_mask[:min_rows, :min_cols] = self._mask[:min_rows, :min_cols]
+
+        self._data = new_data
+        self._mask = new_mask
+        self._shape = new_shape
+
+    def copy(self) -> "Matrix2D":
+        """Create a deep copy of the matrix."""
+        result = Matrix2D.__new__(Matrix2D)
+        result._shape = self._shape
+        result._data = self._data.copy()
+        result._mask = self._mask.copy()
+        return result
+
+    # =========================================================================
+    # Arithmetic Operations
+    # =========================================================================
+
+    def __add__(self, other: Union["Matrix2D", float, int]) -> "Matrix2D":
+        """Add another matrix or scalar."""
+        result = self.copy()
+        result._add_inplace(other)
+        return result
+
+    def __radd__(self, other: Union[float, int]) -> "Matrix2D":
+        """Right addition (scalar + matrix)."""
+        return self.__add__(other)
+
+    def __iadd__(self, other: Union["Matrix2D", float, int]) -> "Matrix2D":
+        """In-place addition."""
+        self._add_inplace(other)
+        return self
+
+    def _add_inplace(self, other: Union["Matrix2D", float, int]) -> None:
+        """Internal in-place addition."""
+        if isinstance(other, Matrix2D):
+            if self._shape != other._shape:
+                raise ValueError(
+                    f"Matrix shapes don't match: {self._shape} vs {other._shape}"
+                )
+            # Only add where both are assigned
+            both_assigned = self._mask & other._mask
+            self._data[both_assigned] += other._data[both_assigned]
+            # Result is unassigned where either operand is unassigned
+            self._mask &= other._mask
+        else:
+            # Scalar addition
+            self._data[self._mask] += other
+
+    def __sub__(self, other: Union["Matrix2D", float, int]) -> "Matrix2D":
+        """Subtract another matrix or scalar."""
+        result = self.copy()
+        result._sub_inplace(other)
+        return result
+
+    def __rsub__(self, other: Union[float, int]) -> "Matrix2D":
+        """Right subtraction (scalar - matrix)."""
+        result = self.copy()
+        result._data = other - result._data
+        return result
+
+    def __isub__(self, other: Union["Matrix2D", float, int]) -> "Matrix2D":
+        """In-place subtraction."""
+        self._sub_inplace(other)
+        return self
+
+    def _sub_inplace(self, other: Union["Matrix2D", float, int]) -> None:
+        """Internal in-place subtraction."""
+        if isinstance(other, Matrix2D):
+            if self._shape != other._shape:
+                raise ValueError(
+                    f"Matrix shapes don't match: {self._shape} vs {other._shape}"
+                )
+            both_assigned = self._mask & other._mask
+            self._data[both_assigned] -= other._data[both_assigned]
+            self._mask &= other._mask
+        else:
+            self._data[self._mask] -= other
+
+    def __mul__(self, other: Union["Matrix2D", float, int]) -> "Matrix2D":
+        """Element-wise multiplication or scalar multiplication."""
+        result = self.copy()
+        result._mul_inplace(other)
+        return result
+
+    def __rmul__(self, other: Union[float, int]) -> "Matrix2D":
+        """Right multiplication (scalar * matrix)."""
+        return self.__mul__(other)
+
+    def __imul__(self, other: Union["Matrix2D", float, int]) -> "Matrix2D":
+        """In-place multiplication."""
+        self._mul_inplace(other)
+        return self
+
+    def _mul_inplace(self, other: Union["Matrix2D", float, int]) -> None:
+        """Internal in-place multiplication."""
+        if isinstance(other, Matrix2D):
+            if self._shape != other._shape:
+                raise ValueError(
+                    f"Matrix shapes don't match: {self._shape} vs {other._shape}"
+                )
+            both_assigned = self._mask & other._mask
+            self._data[both_assigned] *= other._data[both_assigned]
+            self._mask &= other._mask
+        else:
+            self._data[self._mask] *= other
+
+    def __truediv__(self, other: Union["Matrix2D", float, int]) -> "Matrix2D":
+        """Element-wise division or scalar division."""
+        result = self.copy()
+        result._div_inplace(other)
+        return result
+
+    def __itruediv__(self, other: Union["Matrix2D", float, int]) -> "Matrix2D":
+        """In-place division."""
+        self._div_inplace(other)
+        return self
+
+    def _div_inplace(self, other: Union["Matrix2D", float, int]) -> None:
+        """Internal in-place division."""
+        if isinstance(other, Matrix2D):
+            if self._shape != other._shape:
+                raise ValueError(
+                    f"Matrix shapes don't match: {self._shape} vs {other._shape}"
+                )
+            both_assigned = self._mask & other._mask
+            # Avoid division by zero
+            safe_divisor = np.where(other._data != 0, other._data, 1)
+            self._data[both_assigned] /= safe_divisor[both_assigned]
+            self._mask &= other._mask
+        else:
+            if other == 0:
+                raise ZeroDivisionError("Division by zero")
+            self._data[self._mask] /= other
+
+    def __neg__(self) -> "Matrix2D":
+        """Negate the matrix."""
+        result = self.copy()
+        result._data = -result._data
+        return result
+
+    def matmul(self, other: "Matrix2D") -> "Matrix2D":
+        """
+        Matrix multiplication (dot product).
+
+        Args:
+            other: Matrix to multiply with. Must have shape (self.cols, n).
+
+        Returns:
+            Result matrix of shape (self.rows, other.cols).
+
+        Raises:
+            ValueError: If matrix dimensions are incompatible.
+        """
+        if self._shape[1] != other._shape[0]:
+            raise ValueError(
+                f"Matrix dimensions incompatible for multiplication: "
+                f"{self._shape} @ {other._shape}"
+            )
+
+        # For matmul, treat unassigned as 0
+        data_a = np.where(self._mask, self._data, 0)
+        data_b = np.where(other._mask, other._data, 0)
+
+        result_data = data_a @ data_b
+
+        result = Matrix2D.__new__(Matrix2D)
+        result._shape = (self._shape[0], other._shape[1])
+        result._data = result_data
+        result._mask = np.ones(result._shape, dtype=np.bool_)
+
+        return result
+
+    def __matmul__(self, other: "Matrix2D") -> "Matrix2D":
+        """Matrix multiplication operator (@)."""
+        return self.matmul(other)
+
+    # =========================================================================
+    # Convolution and Filtering
+    # =========================================================================
+
+    def convolve(
+        self,
+        kernel: Union["Matrix2D", NDArray[np.float64]],
+        mode: str = "same",
+        boundary: str = "fill",
+        fill_value: float = 0.0
+    ) -> "Matrix2D":
+        """
+        Apply a convolution kernel to the matrix.
+
+        Args:
+            kernel: Convolution kernel (VGMatrix2D or NumPy array).
+            mode: Output size mode:
+                - 'same': Output has same size as input (default).
+                - 'full': Full convolution output.
+                - 'valid': Only positions where kernel fully overlaps.
+            boundary: Boundary handling:
+                - 'fill': Pad with fill_value (default).
+                - 'wrap': Wrap around edges.
+                - 'symm': Symmetric boundary (reflect).
+            fill_value: Value to use for 'fill' boundary mode.
+
+        Returns:
+            New VGMatrix2D with convolution result.
+        """
+        # Get kernel data
+        if isinstance(kernel, Matrix2D):
+            kernel_data = np.where(kernel._mask, kernel._data, 0)
+        else:
+            kernel_data = np.asarray(kernel, dtype=np.float64)
+
+        # Get source data (treat unassigned as fill_value)
+        source_data = np.where(self._mask, self._data, fill_value)
+
+        # Flip kernel for convolution (vs correlation)
+        kernel_flipped = kernel_data[::-1, ::-1]
+
+        # Calculate padding based on mode
+        kh, kw = kernel_flipped.shape
+        pad_h, pad_w = kh // 2, kw // 2
+
+        # Apply padding based on boundary mode
+        if boundary == "fill":
+            padded = np.pad(
+                source_data,
+                ((pad_h, pad_h), (pad_w, pad_w)),
+                mode="constant",
+                constant_values=fill_value
+            )
+        elif boundary == "wrap":
+            padded = np.pad(
+                source_data,
+                ((pad_h, pad_h), (pad_w, pad_w)),
+                mode="wrap"
+            )
+        elif boundary == "symm":
+            padded = np.pad(
+                source_data,
+                ((pad_h, pad_h), (pad_w, pad_w)),
+                mode="symmetric"
+            )
+        else:
+            padded = np.pad(
+                source_data,
+                ((pad_h, pad_h), (pad_w, pad_w)),
+                mode="constant",
+                constant_values=fill_value
+            )
+
+        # Perform convolution using sliding window view
+        from numpy.lib.stride_tricks import sliding_window_view
+        windows = sliding_window_view(padded, kernel_flipped.shape)
+        result_data = np.einsum('ijkl,kl->ij', windows, kernel_flipped)
+
+        # Handle output mode
+        if mode == "same":
+            pass  # Already correct size
+        elif mode == "valid":
+            # Crop to valid region
+            vh, vw = self._shape[0] - kh + 1, self._shape[1] - kw + 1
+            if vh > 0 and vw > 0:
+                start_h = (result_data.shape[0] - vh) // 2
+                start_w = (result_data.shape[1] - vw) // 2
+                result_data = result_data[start_h:start_h+vh, start_w:start_w+vw]
+            else:
+                result_data = np.array([[]], dtype=np.float64)
+        elif mode == "full":
+            # Full convolution - recompute with more padding
+            full_pad_h, full_pad_w = kh - 1, kw - 1
+            if boundary == "fill":
+                padded_full = np.pad(
+                    source_data,
+                    ((full_pad_h, full_pad_h), (full_pad_w, full_pad_w)),
+                    mode="constant",
+                    constant_values=fill_value
+                )
+            else:
+                padded_full = np.pad(
+                    source_data,
+                    ((full_pad_h, full_pad_h), (full_pad_w, full_pad_w)),
+                    mode="wrap" if boundary == "wrap" else "symmetric"
+                )
+            windows_full = sliding_window_view(padded_full, kernel_flipped.shape)
+            result_data = np.einsum('ijkl,kl->ij', windows_full, kernel_flipped)
+
+        # Create result matrix
+        result = Matrix2D.__new__(Matrix2D)
+        result._shape = result_data.shape
+        result._data = result_data.astype(np.float64)
+        result._mask = np.ones(result._shape, dtype=np.bool_)
+
+        return result
+
+    def apply_kernel(
+        self,
+        kernel: Union["Matrix2D", NDArray[np.float64]],
+        normalize: bool = False
+    ) -> "Matrix2D":
+        """
+        Apply a convolution kernel (alias for convolve with 'same' mode).
+
+        Args:
+            kernel: Convolution kernel.
+            normalize: If True, normalize kernel to sum to 1.
+
+        Returns:
+            New VGMatrix2D with filtered result.
+        """
+        if isinstance(kernel, Matrix2D):
+            kernel_data = np.where(kernel._mask, kernel._data, 0)
+        else:
+            kernel_data = np.asarray(kernel, dtype=np.float64)
+
+        if normalize:
+            kernel_sum = np.sum(kernel_data)
+            if kernel_sum != 0:
+                kernel_data = kernel_data / kernel_sum
+
+        return self.convolve(kernel_data, mode="same")
+
+    # =========================================================================
+    # Utility Methods
+    # =========================================================================
+
+    def to_numpy(self, fill_unassigned: Optional[float] = None) -> NDArray[np.float64]:
+        """
+        Convert to NumPy array.
+
+        Args:
+            fill_unassigned: Value to use for unassigned positions.
+                            If None, uses np.nan.
+
+        Returns:
+            NumPy array with matrix data.
+        """
+        if fill_unassigned is None:
+            result = np.where(self._mask, self._data, np.nan)
+        else:
+            result = np.where(self._mask, self._data, fill_unassigned)
+        return result.copy()
+
+    @classmethod
+    def from_numpy(cls, array: NDArray, mask: Optional[NDArray[np.bool_]] = None) -> "Matrix2D":
+        """
+        Create a VGMatrix2D from a NumPy array.
+
+        Args:
+            array: 2D NumPy array.
+            mask: Optional boolean mask (True = assigned).
+                 If None, all values are considered assigned.
+
+        Returns:
+            New VGMatrix2D instance.
+        """
+        array = np.asarray(array, dtype=np.float64)
+        if array.ndim != 2:
+            raise ValueError(f"Array must be 2D, got {array.ndim}D")
+
+        result = cls.__new__(cls)
+        result._shape = array.shape
+        result._data = array.copy()
+
+        if mask is None:
+            result._mask = np.ones(array.shape, dtype=np.bool_)
+        else:
+            result._mask = np.asarray(mask, dtype=np.bool_).copy()
+
+        return result
+
+    @classmethod
+    def create_from_noise(
+        cls,
+        noise,
+        size_x: int,
+        size_y: int
+    ) -> "Matrix2D":
+        """
+        Create a new Matrix2D filled with values from a noise generator.
+
+        Generates noise over the integer grid [0, size_x-1] x [0, size_y-1]
+        using vectorized operations for maximum performance.
+
+        Args:
+            noise: A noise generator instance (NoiseGenerator2D or any object
+                   with a ``generate_region`` or ``get_value_at`` method).
+            size_x: Number of columns (width) of the resulting matrix.
+            size_y: Number of rows (height) of the resulting matrix.
+
+        Returns:
+            A new Matrix2D of shape (size_x, size_y) with all values assigned.
+
+        Raises:
+            ValueError: If size_x or size_y are not positive.
+
+        Example::
+
+            from virigir_math_utilities.noise.generators.noise2d import NoiseGenerator2D
+
+            noise = NoiseGenerator2D.from_dict(noise_config)
+            matrix = Matrix2D.create_from_noise(noise, 512, 512)
+        """
+        if size_x <= 0 or size_y <= 0:
+            raise ValueError(
+                f"Dimensions must be positive integers, got ({size_x}, {size_y})"
+            )
+
+        shape = (size_x, size_y)
+
+        if hasattr(noise, 'generate_region'):
+            region = [
+                (0.0, float(size_x - 1), size_x),
+                (0.0, float(size_y - 1), size_y),
+            ]
+            noise_data = noise.generate_region(region)
+        elif hasattr(noise, 'get_values_vectorized'):
+            rows = np.arange(size_x, dtype=np.float64)
+            cols = np.arange(size_y, dtype=np.float64)
+            xx, yy = np.meshgrid(rows, cols, indexing='ij')
+            noise_data = noise.get_values_vectorized(
+                xx.ravel(), yy.ravel()
+            ).reshape(shape)
+        else:
+            noise_data = np.empty(shape, dtype=np.float64)
+            for r in range(size_x):
+                for c in range(size_y):
+                    noise_data[r, c] = noise.get_value_at((float(r), float(c)))
+
+        result = cls.__new__(cls)
+        result._shape = shape
+        result._data = noise_data.astype(np.float64)
+        result._mask = np.ones(shape, dtype=np.bool_)
+        return result
+
+    @classmethod
+    def from_noise(cls, noise, init_x: int, final_x: int, init_y: int, final_y: int) -> "Matrix2D":
+        """
+        Create a new Matrix2D filled with noise values sampled over a region.
+
+        Args:
+            noise: Source noise generator with generate_region, get_values_vectorized,
+                   or get_value_at method.
+            init_x: Starting row index in noise space (inclusive).
+            final_x: Ending row index in noise space (exclusive).
+            init_y: Starting column index in noise space (inclusive).
+            final_y: Ending column index in noise space (exclusive).
+
+        Returns:
+            A new Matrix2D of shape (final_x - init_x, final_y - init_y).
+        """
+        n_rows = final_x - init_x
+        n_cols = final_y - init_y
+        shape = (n_rows, n_cols)
+
+        if hasattr(noise, 'generate_region'):
+            region = [
+                (float(init_x), float(final_x - 1), n_rows),
+                (float(init_y), float(final_y - 1), n_cols),
+            ]
+            noise_data = noise.generate_region(region)
+        elif hasattr(noise, 'get_values_vectorized'):
+            rows = np.arange(init_x, final_x, dtype=np.float64)
+            cols = np.arange(init_y, final_y, dtype=np.float64)
+            xx, yy = np.meshgrid(rows, cols, indexing='ij')
+            noise_data = noise.get_values_vectorized(xx.ravel(), yy.ravel()).reshape(shape)
+        else:
+            noise_data = np.empty(shape, dtype=np.float64)
+            for r in range(n_rows):
+                for c in range(n_cols):
+                    noise_data[r, c] = noise.get_value_at((float(init_x + r), float(init_y + c)))
+
+        result = cls.__new__(cls)
+        result._shape = shape
+        result._data = noise_data.astype(np.float64)
+        result._mask = np.ones(shape, dtype=np.bool_)
+        return result
+
+    def fill_values_from_noise_region(
+        self,
+        noise,
+        init_x: int,
+        final_x: int,
+        init_y: int,
+        final_y: int,
+    ) -> None:
+        """
+        Fill a sub-region of the matrix with noise values.
+
+        Samples the noise generator at the grid coordinates corresponding to
+        the target region and writes the results directly into that region.
+        Noise coordinates match those used by ``create_from_noise``, so the
+        values are consistent when expanding an existing matrix.
+
+        Args:
+            noise: Noise generator (must have ``generate_region`` or
+                   ``get_value_at``).
+            init_x: First column index to fill (inclusive).
+            final_x: Last column index to fill (exclusive).
+            init_y: First row index to fill (inclusive).
+            final_y: Last row index to fill (exclusive).
+
+        Raises:
+            ValueError: If the region is outside the matrix bounds.
+        """
+        rows, cols = self._shape
+
+        if init_x < 0 or final_x > cols or init_y < 0 or final_y > rows:
+            raise ValueError(
+                f"Region ({init_x},{init_y})-({final_x},{final_y}) is out of "
+                f"bounds for matrix of shape {self._shape}"
+            )
+
+        if init_x >= final_x or init_y >= final_y:
+            return
+
+        n_rows = final_y - init_y
+        n_cols = final_x - init_x
+
+        if hasattr(noise, 'generate_region'):
+            region = [
+                (float(init_y), float(final_y - 1), n_rows),
+                (float(init_x), float(final_x - 1), n_cols),
+            ]
+            noise_data = noise.generate_region(region)
+        elif hasattr(noise, 'get_values_vectorized'):
+            row_coords = np.arange(init_y, final_y, dtype=np.float64)
+            col_coords = np.arange(init_x, final_x, dtype=np.float64)
+            rr, cc = np.meshgrid(row_coords, col_coords, indexing='ij')
+            noise_data = noise.get_values_vectorized(
+                rr.ravel(), cc.ravel()
+            ).reshape(n_rows, n_cols)
+        else:
+            noise_data = np.empty((n_rows, n_cols), dtype=np.float64)
+            for i in range(n_rows):
+                for j in range(n_cols):
+                    noise_data[i, j] = noise.get_value_at(
+                        (float(init_y + i), float(init_x + j))
+                    )
+
+        self._data[init_y:final_y, init_x:final_x] = noise_data
+        self._mask[init_y:final_y, init_x:final_x] = True
+
+    def min(self, ignore_unassigned: bool = True) -> Optional[float]:
+        """Get minimum value."""
+        if ignore_unassigned:
+            if not np.any(self._mask):
+                return None
+            return float(np.min(self._data[self._mask]))
+        return float(np.min(self._data))
+
+    def max(self, ignore_unassigned: bool = True) -> Optional[float]:
+        """Get maximum value."""
+        if ignore_unassigned:
+            if not np.any(self._mask):
+                return None
+            return float(np.max(self._data[self._mask]))
+        return float(np.max(self._data))
+
+    def mean(self, ignore_unassigned: bool = True) -> Optional[float]:
+        """Get mean value."""
+        if ignore_unassigned:
+            if not np.any(self._mask):
+                return None
+            return float(np.mean(self._data[self._mask]))
+        return float(np.mean(self._data))
+
+    def sum(self, ignore_unassigned: bool = True) -> float:
+        """Get sum of values."""
+        if ignore_unassigned:
+            return float(np.sum(self._data[self._mask]))
+        return float(np.sum(self._data))
+
+    def clamp_values(self, min_value: float, max_value: float) -> "Matrix2D":
+        """Return a copy with all values clamped to [min_value, max_value]."""
+        result = self.copy()
+        np.clip(result._data, min_value, max_value, out=result._data)
+        return result
+
+    def binarize(self, min_threshold: float) -> None:
+        """Set values below min_threshold to 0 and the rest to 1, in-place."""
+        np.greater_equal(self._data, min_threshold, out=self._data)
+
+    def normalize(self, new_min: float = 0.0, new_max: float = 1.0) -> "Matrix2D":
+        """Normalize values to range [new_min, new_max]."""
+        result = self.copy()
+
+        if not np.any(self._mask):
+            return result
+
+        old_min = self.min()
+        old_max = self.max()
+
+        if old_min == old_max:
+            result._data[self._mask] = (new_min + new_max) / 2
+        else:
+            result._data[self._mask] = (
+                (self._data[self._mask] - old_min) / (old_max - old_min)
+                * (new_max - new_min) + new_min
+            )
+
+        return result
+
+    def __repr__(self) -> str:
+        """String representation."""
+        assigned = self.count_assigned()
+        return (
+            f"VGMatrix2D(shape={self._shape}, "
+            f"assigned={assigned}/{self.size})"
+        )
+
+    def __str__(self) -> str:
+        """Human-readable string representation."""
+        return f"VGMatrix2D {self._shape[0]}x{self._shape[1]}"
+
+    def __eq__(self, other: object) -> bool:
+        """Check equality with another matrix."""
+        if not isinstance(other, Matrix2D):
+            return False
+        if self._shape != other._shape:
+            return False
+        if not np.array_equal(self._mask, other._mask):
+            return False
+        # Compare only assigned values
+        return np.allclose(
+            self._data[self._mask],
+            other._data[other._mask]
+        )
+
+    def get_submatrix(
+        self,
+        init_x: int,
+        final_x: int,
+        init_y: int,
+        final_y: int
+    ) -> "Matrix2D":
+        """
+        Extract a submatrix from the given region.
+
+        Args:
+            init_x: Starting row index (inclusive).
+            final_x: Ending row index (exclusive).
+            init_y: Starting column index (inclusive).
+            final_y: Ending column index (exclusive).
+
+        Returns:
+            New Matrix2D with the values from the specified region.
+
+        Raises:
+            IndexError: If the region is out of bounds.
+            ValueError: If the region is invalid (init >= final).
+
+        Example:
+            >>> sub = matrix.get_submatrix(0, 4, 0, 4)  # 4x4 submatrix
+        """
+        if init_x < 0 or init_y < 0 or final_x > self._shape[0] or final_y > self._shape[1]:
+            raise IndexError(
+                f"Region ({init_x}:{final_x}, {init_y}:{final_y}) out of bounds "
+                f"for matrix of shape {self._shape}"
+            )
+        if init_x >= final_x or init_y >= final_y:
+            raise ValueError(
+                f"Invalid region: init must be less than final "
+                f"(got rows {init_x}:{final_x}, cols {init_y}:{final_y})"
+            )
+
+        result = Matrix2D.__new__(Matrix2D)
+        result._shape = (final_x - init_x, final_y - init_y)
+        result._data = self._data[init_x:final_x, init_y:final_y].copy()
+        result._mask = self._mask[init_x:final_x, init_y:final_y].copy()
+        return result
+
+    def set_submatrix(
+        self,
+        init_x: int,
+        final_x: int,
+        init_y: int,
+        final_y: int,
+        other: "Matrix2D"
+    ) -> None:
+        """
+        Assign values from another matrix into the specified region.
+
+        Args:
+            init_x: Starting row index (inclusive).
+            final_x: Ending row index (exclusive).
+            init_y: Starting column index (inclusive).
+            final_y: Ending column index (exclusive).
+            other: Source Matrix2D whose values will be written into the region.
+                   Its shape must match (final_x - init_x, final_y - init_y).
+
+        Raises:
+            IndexError: If the region is out of bounds.
+            ValueError: If the region is invalid or other's shape does not match.
+
+        Example:
+            >>> patch = Matrix2D((4, 4), 1.0)
+            >>> matrix.set_submatrix(0, 4, 0, 4, patch)
+        """
+        if init_x < 0 or init_y < 0 or final_x > self._shape[0] or final_y > self._shape[1]:
+            raise IndexError(
+                f"Region ({init_x}:{final_x}, {init_y}:{final_y}) out of bounds "
+                f"for matrix of shape {self._shape}"
+            )
+        if init_x >= final_x or init_y >= final_y:
+            raise ValueError(
+                f"Invalid region: init must be less than final "
+                f"(got rows {init_x}:{final_x}, cols {init_y}:{final_y})"
+            )
+
+        expected_shape = (final_x - init_x, final_y - init_y)
+        if other._shape != expected_shape:
+            raise ValueError(
+                f"Source matrix shape {other._shape} does not match "
+                f"region shape {expected_shape}"
+            )
+
+        self._data[init_x:final_x, init_y:final_y] = other._data
+        self._mask[init_x:final_x, init_y:final_y] = other._mask
+
+    # =========================================================================
+    # Filter Methods (using MatrixFilters)
+    # =========================================================================
+
+    def blur(
+        self,
+        blur_type: str = "gaussian",
+        size: int = 3,
+        sigma: float = 1.0
+    ) -> "Matrix2D":
+        """
+        Apply a blur filter to the matrix.
+
+        Args:
+            blur_type: Type of blur - "box", "gaussian", "motion_horizontal",
+                      "motion_vertical", "motion_diagonal".
+            size: Kernel size (must be odd, default 3).
+            sigma: Gaussian sigma (only used for gaussian blur).
+
+        Returns:
+            New blurred VGMatrix2D.
+
+        Example:
+            >>> blurred = matrix.blur("gaussian", size=5, sigma=1.5)
+        """
+        from .filters import MatrixFilters, BlurType
+
+        blur_map = {
+            "box": BlurType.BOX,
+            "gaussian": BlurType.GAUSSIAN,
+            "motion_horizontal": BlurType.MOTION_HORIZONTAL,
+            "motion_vertical": BlurType.MOTION_VERTICAL,
+            "motion_diagonal": BlurType.MOTION_DIAGONAL,
+        }
+
+        if blur_type not in blur_map:
+            raise ValueError(f"Unknown blur type: {blur_type}. Use one of: {list(blur_map.keys())}")
+
+        kernel = MatrixFilters.blur(blur_map[blur_type], size, sigma=sigma)
+        return self.convolve(kernel)
+
+    def sharpen(self, strength: float = 1.0) -> "Matrix2D":
+        """
+        Apply a sharpen filter to the matrix.
+
+        Args:
+            strength: Sharpening strength (1.0 = normal, higher = more sharp).
+
+        Returns:
+            New sharpened VGMatrix2D.
+        """
+        from .filters import MatrixFilters
+
+        kernel = MatrixFilters.sharpen(strength)
+        return self.convolve(kernel)
+
+    def edge_detect(self, method: str = "sobel_horizontal") -> "Matrix2D":
+        """
+        Apply edge detection to the matrix.
+
+        Args:
+            method: Edge detection method - "sobel_horizontal", "sobel_vertical",
+                   "prewitt_horizontal", "prewitt_vertical", "laplacian",
+                   "laplacian_diagonal".
+
+        Returns:
+            New VGMatrix2D with detected edges.
+        """
+        from .filters import MatrixFilters, EdgeDetectionType
+
+        edge_map = {
+            "sobel_horizontal": EdgeDetectionType.SOBEL_HORIZONTAL,
+            "sobel_vertical": EdgeDetectionType.SOBEL_VERTICAL,
+            "prewitt_horizontal": EdgeDetectionType.PREWITT_HORIZONTAL,
+            "prewitt_vertical": EdgeDetectionType.PREWITT_VERTICAL,
+            "laplacian": EdgeDetectionType.LAPLACIAN,
+            "laplacian_diagonal": EdgeDetectionType.LAPLACIAN_DIAGONAL,
+        }
+
+        if method not in edge_map:
+            raise ValueError(f"Unknown edge detection method: {method}. Use one of: {list(edge_map.keys())}")
+
+        kernel = MatrixFilters.edge_detection(edge_map[method])
+        return self.convolve(kernel)
+
+    def emboss(self, direction: str = "southeast", strength: float = 1.0) -> "Matrix2D":
+        """
+        Apply an emboss effect to the matrix.
+
+        Args:
+            direction: Light direction - "north", "south", "east", "west",
+                      "northeast", "northwest", "southeast", "southwest".
+            strength: Emboss strength multiplier.
+
+        Returns:
+            New embossed VGMatrix2D.
+        """
+        from .filters import MatrixFilters
+
+        kernel = MatrixFilters.emboss(direction, strength)
+        return self.convolve(kernel)
+
+    def high_pass(self, size: int = 3) -> "Matrix2D":
+        """
+        Apply a high-pass filter to the matrix.
+
+        Removes low-frequency components (smooth areas), keeping edges.
+
+        Args:
+            size: Kernel size (must be odd).
+
+        Returns:
+            New high-pass filtered VGMatrix2D.
+        """
+        from .filters import MatrixFilters
+
+        kernel = MatrixFilters.high_pass(size)
+        return self.convolve(kernel)
+
+    def low_pass(self, size: int = 3, sigma: float = 1.0) -> "Matrix2D":
+        """
+        Apply a low-pass filter to the matrix.
+
+        Removes high-frequency components (edges), keeping smooth areas.
+        Equivalent to Gaussian blur.
+
+        Args:
+            size: Kernel size (must be odd).
+            sigma: Gaussian sigma.
+
+        Returns:
+            New low-pass filtered VGMatrix2D.
+        """
+        from .filters import MatrixFilters
+
+        kernel = MatrixFilters.low_pass(size, sigma)
+        return self.convolve(kernel)
+
+    def ridge_detect(self) -> "Matrix2D":
+        """
+        Apply ridge detection to the matrix.
+
+        Highlights ridge-like structures.
+
+        Returns:
+            New VGMatrix2D with detected ridges.
+        """
+        from .filters import MatrixFilters
+
+        kernel = MatrixFilters.ridge_detection()
+        return self.convolve(kernel)
+
+    def unsharp_mask(
+        self,
+        size: int = 5,
+        sigma: float = 1.0,
+        amount: float = 1.0
+    ) -> "Matrix2D":
+        """
+        Apply unsharp mask sharpening.
+
+        A more sophisticated sharpening that subtracts a blurred version.
+
+        Args:
+            size: Kernel size (must be odd).
+            sigma: Gaussian sigma for blur component.
+            amount: Sharpening amount (1.0 = normal).
+
+        Returns:
+            New sharpened VGMatrix2D.
+        """
+        from .filters import MatrixFilters
+
+        kernel = MatrixFilters.unsharp_mask(size, sigma, amount)
+        return self.convolve(kernel)
+
+    # =========================================================================
+    # Serialization / Deserialization
+    # =========================================================================
+
+    def to_bytes(self, compressed: bool = True) -> bytes:
+        """
+        Serialize the matrix to a binary format.
+
+        This is the most efficient format for storage and transmission.
+        The format includes a header with version, shape, and compression info,
+        followed by the data and mask arrays.
+
+        Args:
+            compressed: If True, compress the data using zlib (default True).
+
+        Returns:
+            Bytes object containing the serialized matrix.
+
+        Example:
+            >>> matrix = Matrix2D((100, 100), 0.5)
+            >>> data = matrix.to_bytes()
+            >>> restored = Matrix2D.from_bytes(data)
+        """
+        import struct
+        import zlib
+
+        # Header format:
+        # - Magic number (4 bytes): 'VGM2' to identify the format
+        # - Version (1 byte): format version for future compatibility
+        # - Flags (1 byte): bit 0 = compressed
+        # - Rows (4 bytes, uint32)
+        # - Cols (4 bytes, uint32)
+
+        magic = b'VGM2'
+        version = 1
+        flags = 1 if compressed else 0
+
+        header = struct.pack(
+            '<4sBBII',
+            magic,
+            version,
+            flags,
+            self._shape[0],
+            self._shape[1]
+        )
+
+        # Serialize data and mask
+        data_bytes = self._data.tobytes()
+        mask_bytes = np.packbits(self._mask).tobytes()  # Pack bools to bits for efficiency
+
+        # Combine data and mask with length prefixes
+        payload = struct.pack('<I', len(data_bytes)) + data_bytes
+        payload += struct.pack('<I', len(mask_bytes)) + mask_bytes
+
+        if compressed:
+            payload = zlib.compress(payload, level=6)
+
+        return header + payload
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> "Matrix2D":
+        """
+        Deserialize a matrix from binary format.
+
+        Args:
+            data: Bytes object containing serialized matrix data.
+
+        Returns:
+            New VGMatrix2D instance with the deserialized data.
+
+        Raises:
+            ValueError: If the data is invalid or corrupted.
+
+        Example:
+            >>> data = matrix.to_bytes()
+            >>> restored = Matrix2D.from_bytes(data)
+            >>> assert matrix == restored
+        """
+        import struct
+        import zlib
+
+        if len(data) < 14:  # Minimum header size
+            raise ValueError("Data too short to be a valid VGMatrix2D")
+
+        # Parse header
+        magic, version, flags, rows, cols = struct.unpack('<4sBBII', data[:14])
+
+        if magic != b'VGM2':
+            raise ValueError(f"Invalid magic number: {magic}. Expected 'VGM2'")
+
+        if version > 1:
+            raise ValueError(f"Unsupported format version: {version}")
+
+        compressed = bool(flags & 1)
+        payload = data[14:]
+
+        if compressed:
+            try:
+                payload = zlib.decompress(payload)
+            except zlib.error as e:
+                raise ValueError(f"Failed to decompress data: {e}")
+
+        # Parse payload
+        offset = 0
+
+        # Read data array
+        data_len = struct.unpack('<I', payload[offset:offset + 4])[0]
+        offset += 4
+        data_bytes = payload[offset:offset + data_len]
+        offset += data_len
+
+        # Read mask array
+        mask_len = struct.unpack('<I', payload[offset:offset + 4])[0]
+        offset += 4
+        mask_bytes = payload[offset:offset + mask_len]
+
+        # Reconstruct arrays
+        matrix_data = np.frombuffer(data_bytes, dtype=np.float64).reshape((rows, cols))
+        mask_packed = np.frombuffer(mask_bytes, dtype=np.uint8)
+        mask_unpacked = np.unpackbits(mask_packed)[:rows * cols].reshape((rows, cols))
+
+        # Create matrix
+        result = cls.__new__(cls)
+        result._shape = (rows, cols)
+        result._data = matrix_data.copy()
+        result._mask = mask_unpacked.astype(np.bool_)
+
+        return result
+
+    def to_dict(self) -> dict:
+        """
+        Serialize the matrix to a dictionary (JSON-compatible).
+
+        This format is human-readable and suitable for JSON serialization.
+        For large matrices, consider using to_bytes() instead.
+
+        Returns:
+            Dictionary containing the matrix data.
+
+        Example:
+            >>> matrix = Matrix2D((10, 10), 0.5)
+            >>> d = matrix.to_dict()
+            >>> import json
+            >>> json_str = json.dumps(d)
+        """
+        import base64
+
+        return {
+            "type": "VGMatrix2D",
+            "version": 1,
+            "shape": list(self._shape),
+            "data": base64.b64encode(self._data.tobytes()).decode('ascii'),
+            "mask": base64.b64encode(np.packbits(self._mask).tobytes()).decode('ascii'),
+            "dtype": str(self._data.dtype),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Matrix2D":
+        """
+        Deserialize a matrix from a dictionary.
+
+        Args:
+            d: Dictionary containing serialized matrix data.
+
+        Returns:
+            New VGMatrix2D instance.
+
+        Raises:
+            ValueError: If the dictionary is invalid.
+
+        Example:
+            >>> d = matrix.to_dict()
+            >>> restored = Matrix2D.from_dict(d)
+        """
+        import base64
+
+        if d.get("type") != "VGMatrix2D":
+            raise ValueError(f"Invalid type: {d.get('type')}. Expected 'VGMatrix2D'")
+
+        version = d.get("version", 1)
+        if version > 1:
+            raise ValueError(f"Unsupported version: {version}")
+
+        shape = tuple(d["shape"])
+        rows, cols = shape
+
+        # Decode data
+        data_bytes = base64.b64decode(d["data"])
+        mask_bytes = base64.b64decode(d["mask"])
+
+        matrix_data = np.frombuffer(data_bytes, dtype=np.float64).reshape(shape)
+        mask_packed = np.frombuffer(mask_bytes, dtype=np.uint8)
+        mask_unpacked = np.unpackbits(mask_packed)[:rows * cols].reshape(shape)
+
+        # Create matrix
+        result = cls.__new__(cls)
+        result._shape = shape
+        result._data = matrix_data.copy()
+        result._mask = mask_unpacked.astype(np.bool_)
+
+        return result
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """
+        Serialize the matrix to a JSON string.
+
+        Args:
+            indent: Indentation level for pretty printing. None for compact.
+
+        Returns:
+            JSON string representation of the matrix.
+
+        Example:
+            >>> json_str = matrix.to_json(indent=2)
+            >>> restored = Matrix2D.from_json(json_str)
+        """
+        import json
+        return json.dumps(self.to_dict(), indent=indent)
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "Matrix2D":
+        """
+        Deserialize a matrix from a JSON string.
+
+        Args:
+            json_str: JSON string containing serialized matrix data.
+
+        Returns:
+            New VGMatrix2D instance.
+
+        Example:
+            >>> json_str = matrix.to_json()
+            >>> restored = Matrix2D.from_json(json_str)
+        """
+        import json
+        return cls.from_dict(json.loads(json_str))
+
+    def save(self, filepath: str, format: str = "auto") -> None:
+        """
+        Save the matrix to a file.
+
+        Args:
+            filepath: Path to the file to save.
+            format: File format - "auto" (detect from extension), "binary", "json", or "npy".
+
+        Raises:
+            ValueError: If the format is unknown.
+
+        Example:
+            >>> matrix.save("mymatrix.vgm")  # Binary format
+            >>> matrix.save("mymatrix.json")  # JSON format
+            >>> matrix.save("mymatrix.npy")   # NumPy format (no mask)
+        """
+        from pathlib import Path
+
+        path = Path(filepath)
+
+        if format == "auto":
+            ext = path.suffix.lower()
+            if ext in ('.vgm', '.vgmatrix', '.bin'):
+                format = "binary"
+            elif ext == '.json':
+                format = "json"
+            elif ext == '.npy':
+                format = "npy"
+            else:
+                format = "binary"  # Default
+
+        if format == "binary":
+            with open(filepath, 'wb') as f:
+                f.write(self.to_bytes(compressed=True))
+        elif format == "json":
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(self.to_json(indent=2))
+        elif format == "npy":
+            # NumPy format - saves data only, unassigned values become NaN
+            np.save(filepath, self.to_numpy(fill_unassigned=np.nan))
+        else:
+            raise ValueError(f"Unknown format: {format}. Use 'binary', 'json', or 'npy'")
+
+    @classmethod
+    def load(cls, filepath: str, format: str = "auto") -> "Matrix2D":
+        """
+        Load a matrix from a file.
+
+        Args:
+            filepath: Path to the file to load.
+            format: File format - "auto" (detect from extension), "binary", "json", or "npy".
+
+        Returns:
+            New VGMatrix2D instance with loaded data.
+
+        Raises:
+            ValueError: If the format is unknown or the file is invalid.
+            FileNotFoundError: If the file doesn't exist.
+
+        Example:
+            >>> matrix = Matrix2D.load("mymatrix.vgm")
+            >>> matrix = Matrix2D.load("mymatrix.json")
+        """
+        from pathlib import Path
+
+        path = Path(filepath)
+
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {filepath}")
+
+        if format == "auto":
+            ext = path.suffix.lower()
+            if ext in ('.vgm', '.vgmatrix', '.bin'):
+                format = "binary"
+            elif ext == '.json':
+                format = "json"
+            elif ext == '.npy':
+                format = "npy"
+            else:
+                # Try to detect by reading first bytes
+                with open(filepath, 'rb') as f:
+                    header = f.read(4)
+                if header == b'VGM2':
+                    format = "binary"
+                else:
+                    format = "json"  # Assume JSON
+
+        if format == "binary":
+            with open(filepath, 'rb') as f:
+                return cls.from_bytes(f.read())
+        elif format == "json":
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return cls.from_json(f.read())
+        elif format == "npy":
+            # Load NumPy array, NaN values become unassigned
+            data = np.load(filepath)
+            mask = ~np.isnan(data)
+            data = np.nan_to_num(data, nan=0.0)
+            return cls.from_numpy(data, mask=mask)
+        else:
+            raise ValueError(f"Unknown format: {format}. Use 'binary', 'json', or 'npy'")
+
+    def __getstate__(self) -> dict:
+        """
+        Support for pickle serialization.
+
+        Returns:
+            Dictionary containing the object state.
+        """
+        return {
+            'shape': self._shape,
+            'data': self._data,
+            'mask': self._mask,
+        }
+
+    def __setstate__(self, state: dict) -> None:
+        """
+        Support for pickle deserialization.
+
+        Args:
+            state: Dictionary containing the object state.
+        """
+        self._shape = state['shape']
+        self._data = state['data']
+        self._mask = state['mask']
+
+
