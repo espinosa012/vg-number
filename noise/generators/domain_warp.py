@@ -6,11 +6,9 @@ organic and natural-looking patterns. Algorithms match FastNoiseLite exactly.
 """
 
 from typing import Tuple, Optional
-import numpy as np
-from numpy.typing import NDArray
-
-from virigir_math_utilities.noise.core import DomainWarpFractalType, DomainWarpType
+import
 from .kernels import domain_warp_2d_batch, calc_fractal_bounding
+from ..core import DomainWarpFractalType, DomainWarpType
 
 
 class DomainWarp2D:
