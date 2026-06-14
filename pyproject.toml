@@ -5,7 +5,6 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vg-number"
 version = "0.1.0"
-description = "A high-performance Python library for 2D numerical operations, advanced noise generation, and efficient pathfinding."
 readme = "README.md"
 authors = [
   { name = "Adrian R. Espinosa", email = "espinosa012@gmail.com" }
