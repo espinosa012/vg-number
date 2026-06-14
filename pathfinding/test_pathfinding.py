@@ -6,12 +6,8 @@ and its heuristics, particularly focusing on the Manhattan heuristic.
 """
 
 import pytest
-from virigir_math_utilities.pathfinding import (
-    astar,
-    astar_grid_2d,
-    Manhattan,
-    PathResult,
-)
+
+from pathfinding import Manhattan, astar, astar_grid_2d, PathResult
 
 
 class TestManhattanHeuristic:

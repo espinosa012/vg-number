@@ -13,7 +13,7 @@ Main Components:
     - PathResult: Result object containing path and statistics
 
 Quick Start:
-    >>> from virigir_math_utilities.pathfinding import astar_grid_2d, Manhattan
+    >>> from pathfinding import astar_grid_2d, Manhattan
     >>>
     >>> def is_walkable(pos):
     ...     x, y = pos

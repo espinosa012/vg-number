@@ -583,7 +583,7 @@ class Matrix2D:
 
         Example::
 
-            from virigir_math_utilities.noise.generators.noise2d import NoiseGenerator2D
+            from noise.generators.noise2d import NoiseGenerator2D
 
             noise = NoiseGenerator2D.from_dict(noise_config)
             matrix = Matrix2D.create_from_noise(noise, 512, 512)
