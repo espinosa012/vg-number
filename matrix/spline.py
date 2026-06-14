@@ -10,7 +10,7 @@ from typing import List, Tuple
 import numpy as np
 from scipy.interpolate import CubicSpline
 
-from virigir_math_utilities.matrix.matrix2d import Matrix2D
+from matrix import Matrix2D
 
 
 def apply_spline_points(
@@ -48,7 +48,6 @@ def apply_spline_points(
 
     Example::
 
-        >>> from virigir_math_utilities.matrix import Matrix2D
         >>> m = Matrix2D((4, 4), 0.5)
         >>> # identity curve (no change)
         >>> result = apply_spline_points([(0, 0), (1, 1)], m)

@@ -4,9 +4,8 @@ Domain Warp implementation using FastNoiseLite-compatible JIT kernels.
 Domain warping distorts input coordinates before noise sampling, creating
 organic and natural-looking patterns. Algorithms match FastNoiseLite exactly.
 """
-
+import numpy as np
 from typing import Tuple, Optional
-import
 from .kernels import domain_warp_2d_batch, calc_fractal_bounding
 from ..core import DomainWarpFractalType, DomainWarpType
 
